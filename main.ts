@@ -23,7 +23,10 @@ import {
 } from "@aws-sdk/fetch-http-handler";
 
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
-import * as crypto from "crypto";
+import { nanoid } from 'nanoid'
+import { format } from 'date-fns'
+import { filter, join } from 'lodash'
+// import * as crypto from "crypto";
 
 // Remember to rename these classes and interfaces!
 
@@ -68,6 +71,27 @@ const DEFAULT_SETTINGS: S3UploaderSettings = {
 	uploadPdf: false,
 	bypassCors: false,
 };
+
+const illegalRe = /[/?<>\\:*|":]/g;
+/* tslint:disable-next-line:no-control-regex */
+const controlRe = /[\x00-\x1f\x80-\x9f]/g;
+const reservedRe = /^\.+$/;
+const windowsReservedRe = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$/i;
+const windowsTrailingRe = /[. ]+$/;
+
+
+function sanitize(input:string) {
+	const replacement = ""
+	const sanitized = input
+		.replace(illegalRe, replacement)
+		.replace(controlRe, replacement)
+		.replace(reservedRe, replacement)
+		.replace(windowsReservedRe, replacement)
+		.replace(windowsTrailingRe, replacement)
+		.replace(/\s+/g, ".");
+	return sanitized;
+}
+
 
 export default class S3UploaderPlugin extends Plugin {
 	settings: S3UploaderSettings;
@@ -133,7 +157,7 @@ export default class S3UploaderPlugin extends Plugin {
 		const uploadPdf = fmUploadPdf
 			? fmUploadPdf
 			: this.settings.uploadPdf;
-		
+
 		let file = null;
 
 		// figure out what kind of event we're handling
@@ -171,23 +195,29 @@ export default class S3UploaderPlugin extends Plugin {
 
 			// set the placeholder text
 			const buf = await file.arrayBuffer();
-			const digest = crypto
-				.createHash("md5")
-				.update(new Uint8Array(buf))
-				.digest("hex");
+			// const digest = crypto
+			// 	.createHash("md5")
+			// 	.update(new Uint8Array(buf))
+			// 	.digest("hex");
+			const uid = nanoid(8);
 			const contentType = file?.type;
 			const newFileName =
-				digest +
-				"." +
-				file.name.slice(((file?.name.lastIndexOf(".") - 1) >>> 0) + 2);
+				uid +
+				"_" +
+				sanitize(file.name)
+				// "." +
+				// file.name.slice(((file?.name.lastIndexOf(".") - 1) >>> 0) + 2);
 			const pastePlaceText = `![uploading...](${newFileName})\n`;
 			editor.replaceSelection(pastePlaceText);
 
 			// upload the image
+			const dstFolder = format(new Date, "yyyyMM");
 			const folder = fmUploadFolder
 				? fmUploadFolder
 				: this.settings.folder;
-			const key = folder ? folder + "/" + newFileName : newFileName;
+			const key = join(filter([folder, dstFolder, newFileName], (e)=>e), "/");
+			// console.log(newFileName, key);
+			// const key = folder ? folder + "/" + dstFolder + "/" + newFileName : newFileName;
 
 			if (!localUpload) {
 				// Use S3
@@ -295,7 +325,7 @@ export default class S3UploaderPlugin extends Plugin {
 		this.settings.imageUrlPath = this.settings.forcePathStyle
 			? apiEndpoint + this.settings.bucket + "/"
 			: apiEndpoint.replace("://", `://${this.settings.bucket}.`);
-			
+
 			if (this.settings.bypassCors) {
 				this.s3 = new S3Client({
 					region: this.settings.region,
@@ -545,9 +575,9 @@ class S3UploaderSettingTab extends PluginSettingTab {
 					.setPlaceholder("https://s3.myhost.com/")
 					.setValue(this.plugin.settings.customEndpoint)
 					.onChange(async (value) => {
-						value = value.match(/https?:\/\//) // Force to start http(s):// 
+						value = value.match(/https?:\/\//) // Force to start http(s)://
 							? value
-							: "https://" + value; 
+							: "https://" + value;
 						value = value.replace(/([^\/])$/, '$1/'); // Force to end with slash
 						this.plugin.settings.customEndpoint = value.trim();
 						await this.plugin.saveSettings();
@@ -565,7 +595,7 @@ class S3UploaderSettingTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 					});
 			});
-		
+
 		new Setting(containerEl)
 			.setName("Bypass local CORS check")
 			.setDesc("Bypass local CORS preflight checks - it might work on later versions of Obsidian.")
@@ -651,7 +681,7 @@ class ObsHttpHandler extends FetchHttpHandler {
 			abortError.name = "AbortError";
 			return Promise.reject(abortError);
 		}
-  
+
 		let path = request.path;
 		if (request.query) {
 			const queryString = buildQueryString(request.query);
@@ -659,14 +689,14 @@ class ObsHttpHandler extends FetchHttpHandler {
 				path += `?${queryString}`;
 			}
 		}
-  
+
 		const { port, method } = request;
 		const url = `${request.protocol}//${request.hostname}${
 			port ? `:${port}` : ""
 		}${path}`;
 		const body =
 			method === "GET" || method === "HEAD" ? undefined : request.body;
-  
+
 		const transformedHeaders: Record<string, string> = {};
 		for (const key of Object.keys(request.headers)) {
 			const keyLower = key.toLowerCase();
@@ -675,17 +705,17 @@ class ObsHttpHandler extends FetchHttpHandler {
 			}
 			transformedHeaders[keyLower] = request.headers[key];
 		}
-  
+
 		let contentType: string | undefined = undefined;
 		if (transformedHeaders["content-type"] !== undefined) {
 			contentType = transformedHeaders["content-type"];
 		}
-  
+
 		let transformedBody: any = body;
 		if (ArrayBuffer.isView(body)) {
 			transformedBody = bufferToArrayBuffer(body);
 		}
-  
+
 		const param: RequestUrlParam = {
 			body: transformedBody,
 			headers: transformedHeaders,
@@ -693,7 +723,7 @@ class ObsHttpHandler extends FetchHttpHandler {
 			url: url,
 			contentType: contentType,
 		};
-  
+
 		const raceOfPromises = [
 			requestUrl(param).then((rsp) => {
 				const headers = rsp.headers;
@@ -717,7 +747,7 @@ class ObsHttpHandler extends FetchHttpHandler {
 			}),
 			requestTimeout(this.requestTimeoutInMs),
 		];
-  
+
 		if (abortSignal) {
 			raceOfPromises.push(
 				new Promise<never>((resolve, reject) => {
@@ -739,4 +769,3 @@ const bufferToArrayBuffer = (
 	) => {
 		return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
 	};
-  
