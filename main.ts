@@ -646,9 +646,11 @@ const wrapFileDependingOnType = (location: string, type: string, localBase: stri
 		if (localBase) {
 			throw new Error('PDFs cannot be embedded in local mode');
 		}
-		return `<iframe frameborder=0 border=0 width=100% height=800
-	src="https://docs.google.com/viewer?url=${location}?raw=true">
-</iframe>`
+// 		return `<iframe frameborder=0 border=0 width=100% height=800
+// 	src="https://docs.google.com/viewer?url=${location}?raw=true">
+// </iframe>`
+		const filename = location.split("/").slice(-1)[0].slice(9);
+		return `[${filename}](${location})`
 	} else {
 		throw new Error('Unknown file type');
 	}
