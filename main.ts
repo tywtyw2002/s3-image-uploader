@@ -159,6 +159,7 @@ export default class S3UploaderPlugin extends Plugin {
 			: this.settings.uploadPdf;
 
 		let file = null;
+		let file_event = null;
 
 		// figure out what kind of event we're handling
 		switch (ev.type) {
@@ -170,6 +171,7 @@ export default class S3UploaderPlugin extends Plugin {
 					return;
 				}
 				file = (ev as DragEvent).dataTransfer?.files[0];
+				file_event = "drop";
 		}
 
 		const imageType = /image.*/;
@@ -187,6 +189,15 @@ export default class S3UploaderPlugin extends Plugin {
 			thisType = "pdf";
 		} else if (file?.type.match(imageType)) {
 			thisType = "image";
+		}
+
+
+		// handler attatchment upload
+		if (!thisType && file && file_event == "drop") {
+			const r = confirm("Upload it?")
+			if (r) {
+				thisType = "binary";
+			}
 		}
 
 
@@ -652,7 +663,9 @@ const wrapFileDependingOnType = (location: string, type: string, localBase: stri
 		const filename = location.split("/").slice(-1)[0].slice(9);
 		return `[${filename}](${location})`
 	} else {
-		throw new Error('Unknown file type');
+		const filename = location.split("/").slice(-1)[0].slice(9);
+		return `[${filename}](${location})`
+		// throw new Error('Unknown file type');
 	}
 };
 
